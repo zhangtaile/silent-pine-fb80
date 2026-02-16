@@ -237,7 +237,7 @@ export default {
                         let 订阅内容 = '';
                         if (订阅类型 === 'mixed') {
                             const TLS分片参数 = config_JSON.TLS分片 == 'Shadowrocket' ? `&fragment=${encodeURIComponent('1,40-60,30-50,tlshello')}` : config_JSON.TLS分片 == 'Happ' ? `&fragment=${encodeURIComponent('3,1,tlshello')}` : '';
-                            let 完整优选IP = [], 其他节点LINK = '';
+                            let 完整优选IP = [], 其他节点LINK = '', proxyIPPool = [];
 
                             if (!url.searchParams.has('sub') && config_JSON.优选订阅生成.local) { // 本地生成订阅
                                 const 完整优选列表 = config_JSON.优选订阅生成.本地IP库.随机IP ? (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[0] : await env.KV.get('ADD.txt') ? await 整理成数组(await env.KV.get('ADD.txt')) : (await 生成随机IP(request, config_JSON.优选订阅生成.本地IP库.随机数量, config_JSON.优选订阅生成.本地IP库.指定端口))[0];
@@ -262,9 +262,10 @@ export default {
                                     }
                                 }
                                 const 请求优选API内容 = await 请求优选API(优选API);
+                                const 优选API的IP = 请求优选API内容[0];
+                                proxyIPPool = 请求优选API内容[3] || [];
                                 const 合并其他节点数组 = [...new Set(其他节点.concat(请求优选API内容[1]))];
                                 其他节点LINK = 合并其他节点数组.length > 0 ? 合并其他节点数组.join('\n') + '\n' : '';
-                                const 优选API的IP = 请求优选API内容[0];
                                 完整优选IP = [...new Set(优选IP.concat(优选API的IP))];
                             } else { // 优选订阅生成器
                                 let 优选订阅生成器HOST = url.searchParams.get('sub') || config_JSON.优选订阅生成.SUB;
@@ -294,7 +295,11 @@ export default {
                                     return null;
                                 }
 
-                                return `${协议类型}://00000000-0000-4000-8000-000000000000@${节点地址}:${节点端口}?security=tls&type=${config_JSON.传输协议 + ECHLINK参数}&host=example.com&fp=${config_JSON.Fingerprint}&sni=example.com&path=${encodeURIComponent(config_JSON.随机路径 ? 随机路径(config_JSON.完整节点路径) : config_JSON.完整节点路径) + TLS分片参数}&encryption=none${config_JSON.跳过证书验证 ? '&insecure=1&allowInsecure=1' : ''}#${encodeURIComponent(节点备注)}`;
+                                let 最终路径 = config_JSON.随机路径 ? 随机路径(config_JSON.完整节点路径) : config_JSON.完整节点路径;
+                                const 匹配到的反代IP = proxyIPPool.find(p => p.includes(节点地址));
+                                if (匹配到的反代IP) 最终路径 = `/proxyip=${匹配到的反代IP}`;
+
+                                return `${协议类型}://00000000-0000-4000-8000-000000000000@${节点地址}:${节点端口}?security=tls&type=${config_JSON.传输协议 + ECHLINK参数}&host=example.com&fp=${config_JSON.Fingerprint}&sni=example.com&path=${encodeURIComponent(最终路径) + TLS分片参数}&encryption=none${config_JSON.跳过证书验证 ? '&insecure=1&allowInsecure=1' : ''}#${encodeURIComponent(节点备注)}`;
                             }).filter(item => item !== null).join('\n');
                         } else { // 订阅转换
                             const 订阅转换URL = `${config_JSON.订阅转换配置.SUBAPI}/sub?target=${订阅类型}&url=${encodeURIComponent(url.protocol + '//' + url.host + '/sub?target=mixed&token=' + 订阅TOKEN + (url.searchParams.has('sub') && url.searchParams.get('sub') != '' ? `&sub=${url.searchParams.get('sub')}` : ''))}&config=${encodeURIComponent(config_JSON.订阅转换配置.SUBCONFIG)}&emoji=${config_JSON.订阅转换配置.SUBEMOJI}&scv=${config_JSON.跳过证书验证}`;
@@ -1785,14 +1790,19 @@ async function 获取优选订阅生成器数据(优选订阅生成器HOST) {
 }
 
 async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) {
-    if (!urls?.length) return [[], [], []];
+    if (!urls?.length) return [[], [], [], []];
     const results = new Set();
+    const proxyIPPool = new Set();
     let 订阅链接响应的明文LINK内容 = '', 需要订阅转换订阅URLs = [];
     await Promise.allSettled(urls.map(async (url) => {
+        const isProxyIP = url.toLowerCase().includes('proxyip=true');
         if (url.toLowerCase().startsWith('sub://')) {
             try {
                 const [优选IP, 其他节点LINK] = await 获取优选订阅生成器数据(url);
-                for (const ip of 优选IP) results.add(ip);
+                for (const ip of 优选IP) {
+                    results.add(ip);
+                    if (isProxyIP) proxyIPPool.add(ip.split('#')[0]);
+                }
                 if (其他节点LINK) 订阅链接响应的明文LINK内容 += 其他节点LINK;
             } catch (e) { }
             return;
@@ -1878,7 +1888,9 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
                         hasPort = colonIndex > -1 && /^\d+$/.test(hostPart.substring(colonIndex + 1));
                     }
                     const port = new URL(url).searchParams.get('port') || 默认端口;
-                    results.add(hasPort ? line : `${hostPart}:${port}${remark}`);
+                    const formattedIP = hasPort ? line : `${hostPart}:${port}${remark}`;
+                    results.add(formattedIP);
+                    if (isProxyIP) proxyIPPool.add(formattedIP.split('#')[0]);
                 });
             } else {
                 const headers = lines[0].split(',').map(h => h.trim());
@@ -1892,7 +1904,9 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
                         const cols = line.split(',').map(c => c.trim());
                         if (tlsIdx !== -1 && cols[tlsIdx]?.toLowerCase() !== 'true') return;
                         const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
-                        results.add(`${wrappedIP}:${cols[portIdx]}#${cols[remarkIdx]}`);
+                        const formattedIP = `${wrappedIP}:${cols[portIdx]}#${cols[remarkIdx]}`;
+                        results.add(formattedIP);
+                        if (isProxyIP) proxyIPPool.add(`${wrappedIP}:${cols[portIdx]}`);
                     });
                 } else if (headers.some(h => h.includes('IP')) && headers.some(h => h.includes('延迟')) && headers.some(h => h.includes('下载速度'))) {
                     const ipIdx = headers.findIndex(h => h.includes('IP'));
@@ -1902,7 +1916,9 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
                     dataLines.forEach(line => {
                         const cols = line.split(',').map(c => c.trim());
                         const wrappedIP = IPV6_PATTERN.test(cols[ipIdx]) ? `[${cols[ipIdx]}]` : cols[ipIdx];
-                        results.add(`${wrappedIP}:${port}#CF优选 ${cols[delayIdx]}ms ${cols[speedIdx]}MB/s`);
+                        const formattedIP = `${wrappedIP}:${port}#CF优选 ${cols[delayIdx]}ms ${cols[speedIdx]}MB/s`;
+                        results.add(formattedIP);
+                        if (isProxyIP) proxyIPPool.add(`${wrappedIP}:${port}`);
                     });
                 }
             }
@@ -1910,7 +1926,7 @@ async function 请求优选API(urls, 默认端口 = '443', 超时时间 = 3000) 
     }));
     // 将LINK内容转换为数组并去重
     const LINK数组 = 订阅链接响应的明文LINK内容.trim() ? [...new Set(订阅链接响应的明文LINK内容.split(/\r?\n/).filter(line => line.trim() !== ''))] : [];
-    return [Array.from(results), LINK数组, 需要订阅转换订阅URLs];
+    return [Array.from(results), LINK数组, 需要订阅转换订阅URLs, Array.from(proxyIPPool)];
 }
 
 async function 反代参数获取(request) {
