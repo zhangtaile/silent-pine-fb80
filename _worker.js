@@ -299,7 +299,7 @@ export default {
 
                                 let 最终路径 = config_JSON.随机路径 ? 随机路径(config_JSON.完整节点路径) : config_JSON.完整节点路径;
                                 const 匹配到的反代IP = proxyIPPool.find(p => p.includes(节点地址));
-                                if (匹配到的反代IP) 最终路径 = `/proxyip=${匹配到的反代IP}`;
+                                if (匹配到的反代IP) 最终路径 = `${最终路径}${最终路径.includes('?') ? '&' : '?'}proxyip=${匹配到的反代IP}`;
 
                                 return `${协议类型}://00000000-0000-4000-8000-000000000000@${节点地址}:${节点端口}?security=tls&type=${config_JSON.传输协议 + ECHLINK参数}&host=example.com&fp=${config_JSON.Fingerprint}&sni=example.com&path=${encodeURIComponent(最终路径) + TLS分片参数}&encryption=none${config_JSON.跳过证书验证 ? '&insecure=1&allowInsecure=1' : ''}#${encodeURIComponent(节点备注)}`;
                             }).filter(item => item !== null).join('\n');
